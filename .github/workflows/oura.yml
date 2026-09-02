@@ -1,6 +1,6 @@
 name: Oura Price Bot
 
-on:
+"on":
   workflow_dispatch:
 
 jobs:
@@ -8,18 +8,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Get repository
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install packages
-        run: pip install requests
+      - run: pip install requests
 
-      - name: Run Oura bot
+      - name: Send test notification
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python oura_bot.py
