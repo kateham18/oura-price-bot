@@ -1,0 +1,43 @@
+name: PS5 Price Bot
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  check-ps5-prices:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install packages
+        run: pip install requests
+
+      - name: Search for PS5 deals
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python ps5_bot.py
+
+      - name: Save alerted PS5 deals
+        run: |
+          if [ -f seen_ps5_deals.json ]; then
+            git config user.name "ps5-price-bot"
+            git config user.email "ps5-price-bot@users.noreply.github.com"
+            git add seen_ps5_deals.json
+            git diff --cached --quiet || git commit -m "Update alerted PS5 deals"
+            git push || true
+          fi
