@@ -2,20 +2,22 @@ name: PS5 Price Bot
 
 on:
   workflow_dispatch:
-
   schedule:
     - cron: "*/5 * * * *"
 
 permissions:
   contents: write
 
+concurrency:
+  group: ps5-price-bot
+  cancel-in-progress: true
+
 jobs:
   check-ps5-prices:
-
     runs-on: ubuntu-latest
+    timeout-minutes: 4
 
     steps:
-
       - name: Check out repository
         uses: actions/checkout@v6
 
@@ -25,7 +27,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install packages
-        run: pip install requests
+        run: pip install requests beautifulsoup4
 
       - name: Search for PS5 deals
         env:
