@@ -3,18 +3,15 @@ import re
 import json
 import html
 import hashlib
+import time
 from pathlib import Path
+from urllib.parse import urljoin
 
 import requests
 
 
-# ============================================================
-# SETTINGS
-# ============================================================
-
 NTFY_TOPIC = os.environ["NTFY_TOPIC"]
 
-# Effective price AFTER estimated Georgia tax for US deals.
 GOOD_DEAL_AUD = 700.00
 GREAT_DEAL_AUD = 600.00
 PRICE_ERROR_AUD = 500.00
@@ -25,15 +22,24 @@ STATE_FILE = Path("seen_ps5_deals.json")
 
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
-        "AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1"
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/137.0 Safari/537.36"
     ),
     "Accept-Language": "en-US,en;q=0.9",
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;"
+        "q=0.9,image/avif,image/webp,*/*;q=0.8"
+    ),
 }
 
 
 # ============================================================
-# SOURCES
+# SELLERS
+#
+# Broad seller coverage.
+# Search/category pages are allowed, but alerts only happen
+# when a PS5 console product block can be verified.
 # ============================================================
 
 SOURCES = [
@@ -42,75 +48,160 @@ SOURCES = [
 
     {
         "name": "Walmart US",
-        "url": (
-            "https://www.walmart.com/browse/video-games/"
-            "playstation-5-ps5-consoles/"
-            "2636_5170403_3475115_2762884"
-        ),
         "currency": "USD",
-        "parser": "walmart",
+        "url": (
+            "https://www.walmart.com/search"
+            "?q=playstation+5+console"
+        ),
+    },
+
+    {
+        "name": "Target US",
+        "currency": "USD",
+        "url": (
+            "https://www.target.com/s"
+            "?searchTerm=playstation+5+console"
+        ),
     },
 
     {
         "name": "Best Buy US",
-        "url": (
-            "https://www.bestbuy.com/site/playstation-5/"
-            "ps5-consoles/pcmcat1587395025973.c"
-        ),
         "currency": "USD",
-        "parser": "bestbuy",
+        "url": (
+            "https://www.bestbuy.com/site/searchpage.jsp"
+            "?st=playstation+5+console"
+        ),
     },
+
+    {
+        "name": "PlayStation Direct US",
+        "currency": "USD",
+        "url": (
+            "https://direct.playstation.com/en-us/"
+            "hardware/ps5"
+        ),
+    },
+
+    {
+        "name": "GameStop US",
+        "currency": "USD",
+        "url": (
+            "https://www.gamestop.com/search/"
+            "?q=playstation+5+console"
+        ),
+    },
+
+    {
+        "name": "Newegg US",
+        "currency": "USD",
+        "url": (
+            "https://www.newegg.com/p/pl"
+            "?d=playstation+5+console"
+        ),
+    },
+
+    {
+        "name": "B&H US",
+        "currency": "USD",
+        "url": (
+            "https://www.bhphotovideo.com/c/search"
+            "?Ntt=playstation%205%20console"
+        ),
+    },
+
+    {
+        "name": "Costco US",
+        "currency": "USD",
+        "url": (
+            "https://www.costco.com/"
+            "CatalogSearch?keyword=playstation+5"
+        ),
+    },
+
+    {
+        "name": "Sam's Club US",
+        "currency": "USD",
+        "url": (
+            "https://www.samsclub.com/s/"
+            "playstation%205%20console"
+        ),
+    },
+
 
     # ---------------- AUSTRALIA ----------------
 
     {
         "name": "JB Hi-Fi Australia",
+        "currency": "AUD",
         "url": (
             "https://www.jbhifi.com.au/search"
             "?query=playstation%205%20console"
         ),
-        "currency": "AUD",
-        "parser": "strict_search",
     },
 
     {
         "name": "Harvey Norman Australia",
+        "currency": "AUD",
         "url": (
             "https://www.harveynorman.com.au/"
-            "catalogsearch/result/?q=playstation+5+console"
+            "catalogsearch/result/"
+            "?q=playstation+5+console"
         ),
-        "currency": "AUD",
-        "parser": "strict_search",
-    },
-
-    {
-        "name": "EB Games Australia",
-        "url": (
-            "https://www.ebgames.com.au/search"
-            "?q=playstation%205%20console"
-        ),
-        "currency": "AUD",
-        "parser": "strict_search",
     },
 
     {
         "name": "BIG W Australia",
+        "currency": "AUD",
         "url": (
             "https://www.bigw.com.au/search"
             "?text=playstation%205%20console"
         ),
+    },
+
+    {
+        "name": "EB Games Australia",
         "currency": "AUD",
-        "parser": "strict_search",
+        "url": (
+            "https://www.ebgames.com.au/search"
+            "?q=playstation%205%20console"
+        ),
+    },
+
+    {
+        "name": "Target Australia",
+        "currency": "AUD",
+        "url": (
+            "https://www.target.com.au/search"
+            "?text=playstation%205%20console"
+        ),
+    },
+
+    {
+        "name": "The Gamesmen Australia",
+        "currency": "AUD",
+        "url": (
+            "https://www.gamesmen.com.au/catalogsearch/"
+            "result/?q=playstation+5+console"
+        ),
     },
 ]
 
 
-# ============================================================
-# HEALTH REPORT
-# ============================================================
+DEAL_FEEDS = [
+    {
+        "name": "OzBargain",
+        "currency": "AUD",
+        "url": "https://www.ozbargain.com.au/deals/feed",
+    },
+]
+
 
 source_health = []
 
+
+# ============================================================
+# HEALTH
+# ============================================================
 
 def health(name, status, detail=""):
     source_health.append({
@@ -121,7 +212,7 @@ def health(name, status, detail=""):
 
 
 # ============================================================
-# SAVED ALERTS
+# STATE
 # ============================================================
 
 def load_seen():
@@ -151,7 +242,43 @@ def save_seen(seen):
 
 
 # ============================================================
-# CLEAN HTML
+# FETCH
+# ============================================================
+
+def fetch_raw(url):
+
+    last_error = None
+
+    for attempt in range(3):
+
+        try:
+
+            response = requests.get(
+                url,
+                headers=HEADERS,
+                timeout=35,
+                allow_redirects=True,
+            )
+
+            response.raise_for_status()
+
+            return response.text
+
+        except Exception as exc:
+
+            last_error = exc
+
+            print(
+                f"Attempt {attempt + 1} failed: {exc}"
+            )
+
+            time.sleep(2 + attempt)
+
+    raise last_error
+
+
+# ============================================================
+# TEXT CLEANING
 # ============================================================
 
 def clean_text(text):
@@ -189,23 +316,8 @@ def clean_text(text):
     return text.strip()
 
 
-def fetch(url):
-
-    response = requests.get(
-        url,
-        headers=HEADERS,
-        timeout=25,
-    )
-
-    response.raise_for_status()
-
-    return clean_text(
-        response.text
-    )
-
-
 # ============================================================
-# USD -> AUD
+# FX
 # ============================================================
 
 def get_usd_to_aud():
@@ -213,7 +325,8 @@ def get_usd_to_aud():
     try:
 
         response = requests.get(
-            "https://api.frankfurter.app/latest?from=USD&to=AUD",
+            "https://api.frankfurter.app/"
+            "latest?from=USD&to=AUD",
             timeout=15,
         )
 
@@ -233,14 +346,17 @@ def get_usd_to_aud():
 
 
 # ============================================================
-# PRICE HELPERS
+# MONEY
 # ============================================================
 
 def parse_number(value):
 
     try:
         return float(
-            value.replace(",", "")
+            str(value)
+            .replace(",", "")
+            .replace("$", "")
+            .strip()
         )
 
     except Exception:
@@ -251,12 +367,14 @@ def money_values(text):
 
     patterns = [
         r"US\$\s*([0-9,]+(?:\.[0-9]{1,2})?)",
+        r"USD\s*([0-9,]+(?:\.[0-9]{1,2})?)",
         r"AU\$\s*([0-9,]+(?:\.[0-9]{1,2})?)",
+        r"AUD\s*([0-9,]+(?:\.[0-9]{1,2})?)",
         r"A\$\s*([0-9,]+(?:\.[0-9]{1,2})?)",
         r"\$\s*([0-9,]+(?:\.[0-9]{1,2})?)",
     ]
 
-    values = []
+    results = []
 
     for pattern in patterns:
 
@@ -266,275 +384,302 @@ def money_values(text):
             flags=re.I,
         ):
 
-            value = parse_number(
+            number = parse_number(
                 match
             )
 
             if (
-                value is not None
-                and value >= 1
+                number is not None
+                and number >= 1
             ):
-                values.append(
-                    value
+                results.append(
+                    number
                 )
 
-    return values
+    return results
 
 
 # ============================================================
-# VERIFY THAT THIS IS ACTUALLY A PS5 CONSOLE
+# PRODUCT VALIDATION
 # ============================================================
 
-def valid_ps5_product(text):
+def is_ps5_console(title):
 
-    lower = text.lower()
+    lower = title.lower()
 
-    # Must identify an actual PS5.
-    ps5_terms = [
-        "playstation 5",
-        "playstation5",
-        "ps5",
-    ]
+    has_ps5 = (
+        "playstation 5" in lower
+        or
+        "playstation5" in lower
+        or
+        re.search(
+            r"\bps5\b",
+            lower,
+        )
+    )
 
-    if not any(
-        term in lower
-        for term in ps5_terms
-    ):
+    if not has_ps5:
         return False
 
-    # Must look like an actual console.
-    console_terms = [
+    # We want an actual console or console bundle.
+    console_clues = [
         "console",
         "digital edition",
-        "disc console",
-        "slim",
-        "bundle",
+        "disc edition",
+        "disc bundle",
+        "digital bundle",
+        "console bundle",
+        "slim bundle",
     ]
 
     if not any(
-        term in lower
-        for term in console_terms
+        clue in lower
+        for clue in console_clues
     ):
         return False
 
-    # Reject products we don't want.
     forbidden = [
-        "dualsense controller",
-        "wireless controller",
-        "controller only",
-        "playstation portal",
-        "ps portal",
-        "portal remote",
         "ps5 pro",
         "playstation 5 pro",
+        "playstation5 pro",
+
+        "dualsense",
+        "controller only",
+        "wireless controller",
+        "controller for",
+
+        "playstation portal",
+        "ps portal",
+
         "disc drive",
         "vertical stand",
         "charging station",
         "charging dock",
         "headset",
+        "earbuds",
+
         "console cover",
         "faceplate",
-        "replacement shell",
+        "skin",
+        "protective cover",
+        "carrying case",
+        "storage case",
+
         "empty box",
         "box only",
+        "replacement box",
+
         "refurbished",
-        "restored",
         "renewed",
+        "restored",
         "pre-owned",
         "preowned",
         "used console",
-        "open-box",
         "open box",
+        "open-box",
     ]
 
-    for phrase in forbidden:
-
-        if phrase in lower:
-            return False
+    if any(
+        phrase in lower
+        for phrase in forbidden
+    ):
+        return False
 
     return True
 
 
+def get_edition(title):
+
+    lower = title.lower()
+
+    if "digital" in lower:
+        return "Digital"
+
+    return "Disc/Standard"
+
+
 # ============================================================
-# WALMART
+# JSON-LD PARSER
+#
+# Safest method where supported.
 # ============================================================
 
-def parse_walmart(text):
+def recursively_find_products(obj):
 
-    results = []
+    found = []
 
-    lower = text.lower()
-
-    product_markers = [
-        "playstation 5 disc console slim",
-        "playstation 5 digital console slim",
-        "playstation5 digital edition",
-        "ps5 disc console slim",
-        "ps5 digital console slim",
-    ]
-
-    positions = []
-
-    for marker in product_markers:
-
-        start = 0
-
-        while True:
-
-            index = lower.find(
-                marker,
-                start,
-            )
-
-            if index == -1:
-                break
-
-            positions.append(index)
-
-            start = (
-                index
-                + len(marker)
-            )
-
-    for index in sorted(
-        set(positions)
+    if isinstance(
+        obj,
+        dict,
     ):
 
-        window = text[
-            max(0, index - 80):
-            min(len(text), index + 650)
-        ]
-
-        if not valid_ps5_product(
-            window
-        ):
-            continue
-
-        window_lower = window.lower()
-
-        # Reject third-party/restored items.
-        bad = [
-            "restored",
-            "refurbished",
-            "open box",
-            "pre-owned",
-            "preowned",
-        ]
-
-        if any(
-            phrase in window_lower
-            for phrase in bad
-        ):
-            continue
-
-        prices = money_values(
-            window
+        obj_type = obj.get(
+            "@type"
         )
 
-        if not prices:
-            continue
+        if (
+            obj_type == "Product"
+            or
+            (
+                isinstance(obj_type, list)
+                and
+                "Product" in obj_type
+            )
+        ):
+            found.append(obj)
 
-        price = prices[0]
+        for value in obj.values():
 
-        edition = (
-            "Digital"
-            if "digital" in window_lower
-            else "Disc"
-        )
+            found.extend(
+                recursively_find_products(
+                    value
+                )
+            )
 
-        results.append({
-            "edition": edition,
-            "price": price,
-        })
+    elif isinstance(
+        obj,
+        list,
+    ):
 
-    return results
+        for value in obj:
+
+            found.extend(
+                recursively_find_products(
+                    value
+                )
+            )
+
+    return found
 
 
-# ============================================================
-# BEST BUY
-# ============================================================
+def extract_jsonld_products(raw_html):
 
-def parse_bestbuy(text):
+    scripts = re.findall(
+        r'<script[^>]+type=["\']'
+        r'application/ld\+json'
+        r'["\'][^>]*>'
+        r'(.*?)'
+        r'</script>',
+        raw_html,
+        flags=re.I | re.S,
+    )
 
     results = []
 
-    patterns = [
+    for script in scripts:
 
-        (
-            "Digital",
-            r"PlayStation\s*5"
-            r".{0,100}?"
-            r"(?:Slim\s*)?"
-            r"Digital"
-            r".{0,500}?"
-            r"\$\s*"
-            r"([0-9,]+(?:\.[0-9]{1,2})?)"
-        ),
-
-        (
-            "Disc",
-            r"PlayStation\s*5"
-            r".{0,100}?"
-            r"Slim\s*Console"
-            r".{0,500}?"
-            r"\$\s*"
-            r"([0-9,]+(?:\.[0-9]{1,2})?)"
-        ),
-    ]
-
-    for edition, pattern in patterns:
-
-        matches = re.finditer(
-            pattern,
-            text,
-            flags=re.I | re.S,
+        script = html.unescape(
+            script.strip()
         )
 
-        for match in matches:
+        try:
 
-            window = text[
-                max(0, match.start() - 100):
-                min(len(text), match.end() + 300)
-            ]
+            data = json.loads(
+                script
+            )
 
-            if not valid_ps5_product(
-                window
+        except Exception:
+            continue
+
+        products = (
+            recursively_find_products(
+                data
+            )
+        )
+
+        for product in products:
+
+            name = str(
+                product.get(
+                    "name",
+                    "",
+                )
+            )
+
+            if not is_ps5_console(name):
+                continue
+
+            offers = product.get(
+                "offers"
+            )
+
+            if not offers:
+                continue
+
+            if isinstance(
+                offers,
+                dict,
+            ):
+                offers = [offers]
+
+            if not isinstance(
+                offers,
+                list,
             ):
                 continue
 
-            price = parse_number(
-                match.group(1)
-            )
+            for offer in offers:
 
-            if price is None:
-                continue
+                if not isinstance(
+                    offer,
+                    dict,
+                ):
+                    continue
 
-            results.append({
-                "edition": edition,
-                "price": price,
-            })
+                raw_price = (
+                    offer.get("price")
+                    or
+                    offer.get("lowPrice")
+                )
+
+                price = parse_number(
+                    raw_price
+                )
+
+                if price is None:
+                    continue
+
+                product_url = (
+                    offer.get("url")
+                    or
+                    product.get("url")
+                )
+
+                results.append({
+                    "title": name,
+                    "edition": get_edition(name),
+                    "price": price,
+                    "url": product_url,
+                    "method": "JSON-LD",
+                })
 
     return results
 
 
 # ============================================================
-# STRICT AUSTRALIAN SEARCH
+# HTML FALLBACK
+#
+# Used when retailer doesn't expose Product JSON-LD.
+# Tight windows only.
 # ============================================================
 
-def parse_strict_search(text):
+def extract_html_products(raw_html):
 
-    results = []
+    text = clean_text(
+        raw_html
+    )
 
     lower = text.lower()
 
-    terms = [
+    search_terms = [
         "playstation 5",
-        "ps5",
+        "playstation5",
+        "ps5 ",
     ]
 
     positions = []
 
-    for term in terms:
+    for term in search_terms:
 
         start = 0
 
@@ -548,24 +693,34 @@ def parse_strict_search(text):
             if index == -1:
                 break
 
-            positions.append(index)
+            positions.append(
+                index
+            )
 
             start = (
                 index
                 + len(term)
             )
 
+    results = []
+
     for index in sorted(
         set(positions)
     ):
 
         window = text[
-            max(0, index - 70):
-            min(len(text), index + 550)
+            max(0, index - 50):
+            min(
+                len(text),
+                index + 650,
+            )
         ]
 
-        if not valid_ps5_product(
-            window
+        # Use beginning of card as title/context.
+        title = window[:350]
+
+        if not is_ps5_console(
+            title
         ):
             continue
 
@@ -576,24 +731,84 @@ def parse_strict_search(text):
         if not prices:
             continue
 
-        window_lower = window.lower()
+        # Never add a minimum threshold:
+        # real $50/$100 pricing errors must still trigger.
+        #
+        # Instead reject only common accessory/payment numbers
+        # when they appear as the FIRST price.
+        reject_known = {
+            5.99,
+            9.99,
+            10.00,
+            14.99,
+            19.99,
+            29.99,
+            39.99,
+            49.99,
+            59.99,
+            69.99,
+            74.99,
+            79.99,
+            84.99,
+        }
 
-        edition = (
-            "Digital"
-            if "digital" in window_lower
-            else "Disc/Standard"
-        )
+        price = None
+
+        for candidate in prices:
+
+            if candidate in reject_known:
+                continue
+
+            price = candidate
+            break
+
+        if price is None:
+            continue
 
         results.append({
-            "edition": edition,
-            "price": prices[0],
+            "title": title,
+            "edition": get_edition(
+                title
+            ),
+            "price": price,
+            "url": None,
+            "method": "HTML",
         })
 
     return results
 
 
 # ============================================================
-# PRICE CLASSIFICATION
+# DEDUPE RESULTS
+# ============================================================
+
+def dedupe_products(products):
+
+    output = []
+    seen = set()
+
+    for product in products:
+
+        key = (
+            product["edition"],
+            round(
+                product["price"],
+                2,
+            ),
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        output.append(product)
+
+    return output
+
+
+# ============================================================
+# CLASSIFICATION
 # ============================================================
 
 def classification(aud_total):
@@ -631,19 +846,19 @@ def effective_aud(
     if currency == "AUD":
         return price
 
-    taxed_usd = (
+    taxed = (
         price
         * (1 + GA_SALES_TAX)
     )
 
     return (
-        taxed_usd
+        taxed
         * usd_to_aud
     )
 
 
 # ============================================================
-# UNIQUE ALERT
+# ALERT ID
 # ============================================================
 
 def deal_id(
@@ -659,7 +874,9 @@ def deal_id(
     )
 
     return hashlib.sha256(
-        raw.encode("utf-8")
+        raw.encode(
+            "utf-8"
+        )
     ).hexdigest()
 
 
@@ -673,14 +890,14 @@ def send_notification(
     item_price,
     currency,
     aud_total,
-    classification_name,
+    label,
     emoji,
     url,
     usd_to_aud,
 ):
 
     title = (
-        f"PS5 {classification_name} - "
+        f"PS5 {label} - "
         f"A${aud_total:.0f}"
     )
 
@@ -697,45 +914,45 @@ def send_notification(
         )
 
         body = (
-            f"{emoji} PS5 {classification_name}\n\n"
-            f"PlayStation 5 Console\n"
-            f"Edition: {edition}\n"
-            f"Retailer: {retailer}\n\n"
+            f"{emoji} PS5 {label}\n\n"
+            f"Retailer: {retailer}\n"
+            f"Edition: {edition}\n\n"
             f"Item price: US${item_price:.2f}\n"
-            f"Estimated Georgia tax: US${tax:.2f}\n"
-            f"Estimated checkout: US${checkout:.2f}\n"
+            f"Est. Georgia tax: US${tax:.2f}\n"
+            f"Est. checkout: US${checkout:.2f}\n"
             f"USD/AUD: {usd_to_aud:.4f}\n\n"
-            f"Estimated effective cost: "
+            f"Est. effective cost: "
             f"A${aud_total:.2f}\n\n"
-            f"Console package must include at least "
-            f"the standard DualSense controller.\n\n"
-            f"Tap to verify immediately."
+            f"NEW PS5 console/bundle detected.\n"
+            f"Tap and verify immediately."
         )
 
     else:
 
         body = (
-            f"{emoji} PS5 {classification_name}\n\n"
-            f"PlayStation 5 Console\n"
-            f"Edition: {edition}\n"
-            f"Retailer: {retailer}\n\n"
+            f"{emoji} PS5 {label}\n\n"
+            f"Retailer: {retailer}\n"
+            f"Edition: {edition}\n\n"
             f"Price: A${item_price:.2f}\n\n"
-            f"Estimated effective cost: "
-            f"A${aud_total:.2f}\n\n"
-            f"Console package must include at least "
-            f"the standard DualSense controller.\n\n"
-            f"Tap to verify immediately."
+            f"NEW PS5 console/bundle detected.\n"
+            f"Tap and verify immediately."
         )
+
+    headers = {
+        "Title": title,
+        "Priority": "urgent",
+        "Tags": "video_game,moneybag",
+    }
+
+    if url:
+        headers["Click"] = url
 
     response = requests.post(
         f"https://ntfy.sh/{NTFY_TOPIC}",
-        data=body.encode("utf-8"),
-        headers={
-            "Title": title,
-            "Priority": "urgent",
-            "Click": url,
-            "Tags": "video_game,moneybag",
-        },
+        data=body.encode(
+            "utf-8"
+        ),
+        headers=headers,
         timeout=15,
     )
 
@@ -743,18 +960,19 @@ def send_notification(
 
 
 # ============================================================
-# EVALUATE DEAL
+# EVALUATE
 # ============================================================
 
 def evaluate(
     retailer,
-    url,
     currency,
-    edition,
-    price,
+    product,
+    source_url,
     usd_to_aud,
     seen,
 ):
+
+    price = product["price"]
 
     aud_total = effective_aud(
         price,
@@ -762,37 +980,28 @@ def evaluate(
         usd_to_aud,
     )
 
+    print(
+        f"{retailer} | "
+        f"{product['edition']} | "
+        f"{currency} {price:.2f} | "
+        f"effective A${aud_total:.2f} | "
+        f"{product['method']}"
+    )
+
     label, emoji = classification(
         aud_total
     )
 
-    if currency == "USD":
-
-        print(
-            f"{retailer} | "
-            f"{edition} | "
-            f"US${price:.2f} | "
-            f"est A${aud_total:.2f}"
-        )
-
-    else:
-
-        print(
-            f"{retailer} | "
-            f"{edition} | "
-            f"A${price:.2f}"
-        )
-
     if not label:
         return
 
-    unique_id = deal_id(
+    unique = deal_id(
         retailer,
-        edition,
+        product["edition"],
         price,
     )
 
-    if unique_id in seen:
+    if unique in seen:
 
         print(
             "Already alerted."
@@ -800,20 +1009,26 @@ def evaluate(
 
         return
 
+    product_url = (
+        product.get("url")
+        or
+        source_url
+    )
+
     send_notification(
         retailer=retailer,
-        edition=edition,
+        edition=product["edition"],
         item_price=price,
         currency=currency,
         aud_total=aud_total,
-        classification_name=label,
+        label=label,
         emoji=emoji,
-        url=url,
+        url=product_url,
         usd_to_aud=usd_to_aud,
     )
 
     seen.add(
-        unique_id
+        unique
     )
 
     save_seen(
@@ -821,12 +1036,12 @@ def evaluate(
     )
 
     print(
-        "PS5 ALERT SENT"
+        "ALERT SENT"
     )
 
 
 # ============================================================
-# CHECK SOURCE
+# CHECK RETAILER
 # ============================================================
 
 def check_source(
@@ -843,7 +1058,7 @@ def check_source(
 
     try:
 
-        text = fetch(
+        raw = fetch_raw(
             source["url"]
         )
 
@@ -861,35 +1076,40 @@ def check_source(
 
         return
 
-    if source["parser"] == "walmart":
+    products = (
+        extract_jsonld_products(
+            raw
+        )
+    )
 
-        results = parse_walmart(
-            text
+    # If no structured Product data,
+    # use cautious text fallback.
+    if not products:
+
+        products = (
+            extract_html_products(
+                raw
+            )
         )
 
-    elif source["parser"] == "bestbuy":
+    products = dedupe_products(
+        products
+    )
 
-        results = parse_bestbuy(
-            text
-        )
-
-    else:
-
-        results = parse_strict_search(
-            text
-        )
-
-    if not results:
+    if not products:
 
         print(
             "No verified PS5 console "
-            "price found."
+            "products found."
         )
 
         health(
             name,
             "NO VERIFIED PRODUCT",
-            "Page loaded but no safe console+price match found",
+            (
+                "Page loaded, but no safe "
+                "PS5 console + price pair found"
+            ),
         )
 
         return
@@ -897,38 +1117,153 @@ def check_source(
     health(
         name,
         "OK",
-        f"{len(results)} verified result(s)",
+        f"{len(products)} verified result(s)",
     )
 
-    used = set()
-
-    for result in results:
-
-        combination = (
-            result["edition"],
-            result["price"],
-        )
-
-        if combination in used:
-            continue
-
-        used.add(
-            combination
-        )
+    for product in products:
 
         evaluate(
             retailer=name,
-            url=source["url"],
             currency=source["currency"],
-            edition=result["edition"],
-            price=result["price"],
+            product=product,
+            source_url=source["url"],
             usd_to_aud=usd_to_aud,
             seen=seen,
         )
 
 
 # ============================================================
-# HEALTH REPORT
+# OZBARGAIN
+# ============================================================
+
+def check_ozbargain(
+    usd_to_aud,
+    seen,
+):
+
+    name = "OzBargain"
+
+    url = (
+        "https://www.ozbargain.com.au/"
+        "deals/feed"
+    )
+
+    print(
+        "\nChecking OzBargain..."
+    )
+
+    try:
+
+        raw = fetch_raw(
+            url
+        )
+
+    except Exception as exc:
+
+        health(
+            name,
+            "BLOCKED",
+            str(exc),
+        )
+
+        return
+
+    items = re.findall(
+        r"<item>(.*?)</item>",
+        raw,
+        flags=re.I | re.S,
+    )
+
+    count = 0
+
+    for item in items:
+
+        title_match = re.search(
+            r"<title>(.*?)</title>",
+            item,
+            flags=re.I | re.S,
+        )
+
+        description_match = re.search(
+            r"<description>(.*?)</description>",
+            item,
+            flags=re.I | re.S,
+        )
+
+        link_match = re.search(
+            r"<link>(.*?)</link>",
+            item,
+            flags=re.I | re.S,
+        )
+
+        title = clean_text(
+            title_match.group(1)
+            if title_match
+            else ""
+        )
+
+        description = clean_text(
+            description_match.group(1)
+            if description_match
+            else ""
+        )
+
+        combined = (
+            f"{title} {description}"
+        )
+
+        if not is_ps5_console(
+            combined
+        ):
+            continue
+
+        prices = money_values(
+            combined
+        )
+
+        if not prices:
+            continue
+
+        price = prices[0]
+
+        link = (
+            clean_text(
+                link_match.group(1)
+            )
+            if link_match
+            else url
+        )
+
+        product = {
+            "title": title,
+            "edition": get_edition(
+                title
+            ),
+            "price": price,
+            "url": link,
+            "method": "OzBargain",
+        }
+
+        count += 1
+
+        evaluate(
+            retailer=name,
+            currency="AUD",
+            product=product,
+            source_url=link,
+            usd_to_aud=usd_to_aud,
+            seen=seen,
+        )
+
+    health(
+        name,
+        "OK",
+        f"{count} relevant deal(s) found",
+    )
+
+
+# ============================================================
+# REPORT
 # ============================================================
 
 def print_health():
@@ -959,16 +1294,16 @@ def print_health():
             )
 
     print(
-        "\nAmazon US: EXTERNAL TRACKER"
+        "\nAmazon US: use external exact-product tracker"
     )
 
     print(
-        "Amazon AU: EXTERNAL TRACKER"
+        "Amazon AU: use external exact-product tracker"
     )
 
     print(
-        "Amazon intentionally not scraped "
-        "to avoid false product matches."
+        "Amazon search scraping remains disabled "
+        "to prevent accessory false alerts."
     )
 
     print(
@@ -983,7 +1318,7 @@ def print_health():
 def main():
 
     print(
-        "Starting PS5 price-error monitor..."
+        "Starting broad PS5 deal monitor..."
     )
 
     print(
@@ -991,19 +1326,19 @@ def main():
     )
 
     print(
-        "- New PS5 Slim Disc"
+        "- New PS5 Disc"
     )
 
     print(
-        "- New PS5 Slim Digital"
+        "- New PS5 Digital"
     )
 
     print(
-        "- Legitimate console bundles"
+        "- Console bundles"
     )
 
     print(
-        "- Must include at least the normal controller"
+        "- At least standard included controller"
     )
 
     print(
@@ -1015,11 +1350,11 @@ def main():
     )
 
     print(
-        "- Refurbished/restored/open-box"
+        "- Used/refurbished/open-box"
     )
 
     print(
-        "- Controllers/accessories alone"
+        "- Controllers/accessories"
     )
 
     print(
@@ -1031,19 +1366,19 @@ def main():
     )
 
     print(
-        "GOOD DEAL: <= A$700"
+        "GOOD <= A$700"
     )
 
     print(
-        "GREAT DEAL: <= A$600"
+        "GREAT <= A$600"
     )
 
     print(
-        "POSSIBLE PRICE ERROR: <= A$500"
+        "PRICE ERROR <= A$500"
     )
 
     print(
-        "\nThere is NO minimum price."
+        "\nNO LOWER PRICE LIMIT."
     )
 
     seen = load_seen()
@@ -1053,12 +1388,8 @@ def main():
     )
 
     print(
-        f"\nUSD/AUD: {usd_to_aud:.4f}"
-    )
-
-    print(
-        "US price includes estimated "
-        "8% Georgia sales tax."
+        f"\nUSD/AUD: "
+        f"{usd_to_aud:.4f}"
     )
 
     for source in SOURCES:
@@ -1069,10 +1400,15 @@ def main():
             seen,
         )
 
+    check_ozbargain(
+        usd_to_aud,
+        seen,
+    )
+
     print_health()
 
     print(
-        "\nPS5 search complete."
+        "\nPS5 check complete."
     )
 
 
