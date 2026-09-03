@@ -9,18 +9,30 @@ import requests
 
 
 # ============================================================
-# SETTINGS
+# USER SETTINGS
 # ============================================================
 
 NTFY_TOPIC = os.environ["NTFY_TOPIC"]
 
-# These are MAXIMUM prices.
-# Anything BELOW them also qualifies.
+# Thresholds are EFFECTIVE AUD COST.
+#
+# AU purchase:
+#   advertised AUD price
+#
+# US purchase:
+#   USD item price
+#   + estimated Georgia sales tax
+#   then converted to AUD
+#
 GOOD_DEAL_AUD = 650.00
 GREAT_DEAL_AUD = 600.00
 PRICE_ERROR_AUD = 550.00
 
+# Conservative estimate for delivery in Georgia.
+GA_SALES_TAX = 0.08
+
 STATE_FILE = Path("seen_deals.json")
+
 
 HEADERS = {
     "User-Agent": (
@@ -32,7 +44,47 @@ HEADERS = {
 
 
 # ============================================================
-# RETAILERS TO CHECK
+# EXACT TARGET GOLD PAGES
+# ============================================================
+
+TARGET_GOLD = [
+    {
+        "size": 6,
+        "url": "https://www.target.com/p/-/A-95006350",
+    },
+    {
+        "size": 7,
+        "url": "https://www.target.com/p/-/A-95006341",
+    },
+    {
+        "size": 8,
+        "url": "https://www.target.com/p/-/A-95006370",
+    },
+    {
+        "size": 9,
+        "url": "https://www.target.com/p/-/A-95006360",
+    },
+    {
+        "size": 10,
+        "url": "https://www.target.com/p/-/A-95006380",
+    },
+    {
+        "size": 11,
+        "url": "https://www.target.com/p/-/A-95006355",
+    },
+    {
+        "size": 12,
+        "url": "https://www.target.com/p/-/A-95006381",
+    },
+    {
+        "size": 13,
+        "url": "https://www.target.com/p/-/A-95006326",
+    },
+]
+
+
+# ============================================================
+# OTHER SOURCES
 # ============================================================
 
 SOURCES = [
@@ -41,23 +93,32 @@ SOURCES = [
 
     {
         "name": "JB Hi-Fi Australia",
-        "url": "https://www.jbhifi.com.au/collections/health-fitness-wearables/oura-ring-5",
+        "url": (
+            "https://www.jbhifi.com.au/search"
+            "?query=oura%20ring%205%20gold"
+        ),
         "currency": "AUD",
-        "country": "AU",
+        "parser": "strict_search",
     },
 
     {
         "name": "Harvey Norman Australia",
-        "url": "https://www.harveynorman.com.au/catalogsearch/result/?q=oura+ring+5+gold",
+        "url": (
+            "https://www.harveynorman.com.au/"
+            "catalogsearch/result/?q=oura+ring+5+gold"
+        ),
         "currency": "AUD",
-        "country": "AU",
+        "parser": "strict_search",
     },
 
     {
         "name": "Amazon Australia",
-        "url": "https://www.amazon.com.au/s?k=Oura+Ring+5+Gold",
+        "url": (
+            "https://www.amazon.com.au/"
+            "s?k=Oura+Ring+5+Gold"
+        ),
         "currency": "AUD",
-        "country": "AU",
+        "parser": "strict_search",
     },
 
 
@@ -67,49 +128,50 @@ SOURCES = [
         "name": "Oura US",
         "url": "https://ouraring.com/store/rings/oura-ring-5",
         "currency": "USD",
-        "country": "US",
+        "parser": "oura_official",
     },
 
     {
         "name": "Best Buy US",
-        "url": "https://www.bestbuy.com/site/searchpage.jsp?st=oura+ring+5+gold",
+        "url": "https://www.bestbuy.com/site/promo/oura-ring-5",
         "currency": "USD",
-        "country": "US",
-    },
-
-    {
-        "name": "Target US",
-        "url": "https://www.target.com/s?searchTerm=oura+ring+5+gold",
-        "currency": "USD",
-        "country": "US",
+        "parser": "bestbuy",
     },
 
     {
         "name": "Walmart US",
-        "url": "https://www.walmart.com/search?q=oura+ring+5+gold",
+        "url": "https://www.walmart.com/ip/19953755891",
         "currency": "USD",
-        "country": "US",
+        "parser": "walmart",
     },
 
     {
         "name": "Amazon US",
-        "url": "https://www.amazon.com/s?k=Oura+Ring+5+Gold",
+        "url": (
+            "https://www.amazon.com/"
+            "s?k=Oura+Ring+5+Gold"
+        ),
         "currency": "USD",
-        "country": "US",
+        "parser": "strict_search",
     },
 
     {
         "name": "Costco US",
-        "url": "https://www.costco.com/CatalogSearch?keyword=oura+ring+5",
+        "url": (
+            "https://www.costco.com/p/-/"
+            "oura-ring-5-gold-smart-ring-exclusive-bundle-"
+            "ring-additional-charger-additional-year-of-"
+            "manufacturers-warranty/4201004522"
+        ),
         "currency": "USD",
-        "country": "US",
+        "parser": "costco",
     },
 
     {
         "name": "Sam's Club US",
-        "url": "https://www.samsclub.com/s/oura%20ring%205",
+        "url": "https://www.samsclub.com/ip/Oura-Ring-5/20353851114",
         "currency": "USD",
-        "country": "US",
+        "parser": "sams",
     },
 ]
 
@@ -119,33 +181,11 @@ SOURCES = [
 # ============================================================
 
 FEEDS = [
-
     {
-        "name": "OzBargain New Deals",
+        "name": "OzBargain",
         "url": "https://www.ozbargain.com.au/deals/feed",
         "currency": "AUD",
-        "country": "AU",
     },
-
-]
-
-
-# ============================================================
-# WORDS USED TO AVOID FALSE ALERTS
-# ============================================================
-
-ACCESSORY_WORDS = [
-    "sizing kit",
-    "size kit",
-    "sizing rings",
-    "charger only",
-    "charging dock",
-    "replacement charger",
-    "charging cable",
-    "ring protector",
-    "ring cover",
-    "silicone protector",
-    "case only",
 ]
 
 
@@ -154,28 +194,18 @@ ACCESSORY_WORDS = [
 # ============================================================
 
 def load_seen():
-
     if not STATE_FILE.exists():
         return set()
 
     try:
-        return set(
-            json.loads(
-                STATE_FILE.read_text()
-            )
-        )
-
+        return set(json.loads(STATE_FILE.read_text()))
     except Exception:
         return set()
 
 
 def save_seen(seen):
-
     STATE_FILE.write_text(
-        json.dumps(
-            sorted(seen),
-            indent=2,
-        )
+        json.dumps(sorted(seen), indent=2)
     )
 
 
@@ -184,7 +214,6 @@ def save_seen(seen):
 # ============================================================
 
 def clean_text(text):
-
     text = html.unescape(text or "")
 
     text = re.sub(
@@ -217,13 +246,27 @@ def clean_text(text):
 
 
 # ============================================================
-# LIVE USD -> AUD EXCHANGE RATE
+# DOWNLOAD PAGE
+# ============================================================
+
+def fetch(url):
+    response = requests.get(
+        url,
+        headers=HEADERS,
+        timeout=25,
+    )
+
+    response.raise_for_status()
+
+    return clean_text(response.text)
+
+
+# ============================================================
+# LIVE USD -> AUD RATE
 # ============================================================
 
 def get_usd_to_aud():
-
     try:
-
         response = requests.get(
             "https://api.frankfurter.app/latest?from=USD&to=AUD",
             timeout=15,
@@ -233,143 +276,39 @@ def get_usd_to_aud():
 
         data = response.json()
 
-        return float(
-            data["rates"]["AUD"]
-        )
+        return float(data["rates"]["AUD"])
 
     except Exception as exc:
+        print(f"FX lookup failed: {exc}")
 
-        print(
-            f"FX lookup failed: {exc}"
-        )
-
-        # Fallback only if live FX lookup fails
+        # Only used if live rate lookup fails.
         return 1.40
 
 
 # ============================================================
-# DETECT THE RIGHT PRODUCT
+# PRICE HELPERS
 # ============================================================
 
-def contains_gold_oura(text):
-
-    text = text.lower()
-
-    has_oura = (
-        "oura ring 5" in text
-        or
-        "oura 5" in text
-    )
-
-    has_gold = (
-        "gold" in text
-    )
-
-    return (
-        has_oura
-        and
-        has_gold
-    )
+def parse_number(value):
+    try:
+        return float(
+            value.replace(",", "")
+        )
+    except Exception:
+        return None
 
 
-# ============================================================
-# REMOVE ACCESSORY-ONLY AREAS
-# ============================================================
-
-def is_accessory_text(text):
-
-    text = text.lower()
-
-    return any(
-        word in text
-        for word in ACCESSORY_WORDS
-    )
-
-
-# ============================================================
-# FIND PRODUCT-RELEVANT TEXT WINDOWS
-# ============================================================
-
-def get_product_windows(text):
-
-    lower_text = text.lower()
-
-    windows = []
-
-    search_terms = [
-        "oura ring 5",
-        "oura 5",
+def money_values(text):
+    patterns = [
+        r"US\$\s*([0-9,]+(?:\.[0-9]{1,2})?)",
+        r"AU\$\s*([0-9,]+(?:\.[0-9]{1,2})?)",
+        r"A\$\s*([0-9,]+(?:\.[0-9]{1,2})?)",
+        r"\$\s*([0-9,]+(?:\.[0-9]{1,2})?)",
     ]
 
-    for term in search_terms:
-
-        start = 0
-
-        while True:
-
-            index = lower_text.find(
-                term,
-                start,
-            )
-
-            if index == -1:
-                break
-
-            # Look around the product title instead of
-            # blindly examining every price on the page.
-            window_start = max(
-                0,
-                index - 500,
-            )
-
-            window_end = min(
-                len(text),
-                index + 1500,
-            )
-
-            window = text[
-                window_start:window_end
-            ]
-
-            windows.append(window)
-
-            start = (
-                index
-                + len(term)
-            )
-
-    return windows
-
-
-# ============================================================
-# PRICE EXTRACTION
-# ============================================================
-
-def extract_prices(text, currency):
-
-    if currency == "AUD":
-
-        patterns = [
-            r"A\$\s*([0-9]{1,4}(?:\.[0-9]{1,2})?)",
-            r"AU\$\s*([0-9]{1,4}(?:\.[0-9]{1,2})?)",
-            r"\$\s*([0-9]{1,4}(?:\.[0-9]{1,2})?)",
-        ]
-
-        maximum = 1500.00
-
-    else:
-
-        patterns = [
-            r"US\$\s*([0-9]{1,4}(?:\.[0-9]{1,2})?)",
-            r"\$\s*([0-9]{1,4}(?:\.[0-9]{1,2})?)",
-        ]
-
-        maximum = 1000.00
-
-    found = []
+    values = []
 
     for pattern in patterns:
-
         matches = re.findall(
             pattern,
             text,
@@ -377,128 +316,486 @@ def extract_prices(text, currency):
         )
 
         for match in matches:
+            value = parse_number(match)
 
-            try:
+            if value is not None and value >= 1:
+                values.append(value)
 
-                price = float(match)
+    return values
 
-                # IMPORTANT:
-                # There is deliberately NO meaningful
-                # lower price limit here.
-                #
-                # A Ring at $99, $50 or even $1 could
-                # therefore be detected as a price error.
-                if (
-                    price >= 1.00
-                    and
-                    price <= maximum
-                ):
 
-                    found.append(price)
+def valid_ring_price_context(text):
+    lower = text.lower()
 
-            except ValueError:
-                pass
-
-    return sorted(
-        set(found)
+    required = (
+        "oura ring 5" in lower
+        and
+        "gold" in lower
     )
 
+    if not required:
+        return False
+
+    bad_phrases = [
+        "charging case",
+        "charger only",
+        "replacement charger",
+        "ring protector",
+        "silicone protector",
+        "membership",
+    ]
+
+    # We don't reject "sizing kit" globally because
+    # Best Buy includes those words in the REAL Ring 5 title.
+    for phrase in bad_phrases:
+        if phrase in lower:
+            return False
+
+    return True
+
 
 # ============================================================
-# SEARCH PRODUCT WINDOWS FOR PRICES
+# BEST BUY
 # ============================================================
 
-def find_gold_oura_prices(text, currency):
+def parse_bestbuy(text):
+    results = []
 
-    prices = []
+    for size in range(6, 14):
 
-    windows = get_product_windows(text)
+        pattern = (
+            rf"Oura\s*-\s*Ring 5"
+            rf".{{0,250}}?"
+            rf"Size {size}"
+            rf".{{0,100}}?"
+            rf"Gold"
+            rf".{{0,450}}?"
+            rf"\$\s*([0-9,]+(?:\.[0-9]{{1,2}})?)"
+        )
 
-    for window in windows:
+        match = re.search(
+            pattern,
+            text,
+            flags=re.I | re.S,
+        )
 
-        lower_window = window.lower()
-
-        # Must contain GOLD in the relevant product area.
-        if "gold" not in lower_window:
+        if not match:
             continue
 
-        # Skip an area if it clearly appears to be
-        # an accessory rather than the actual ring.
-        if is_accessory_text(lower_window):
+        price = parse_number(
+            match.group(1)
+        )
 
-            # But don't automatically discard it if
-            # it also explicitly describes the actual
-            # Gold Ring 5.
-            explicit_ring = (
-                "oura ring 5" in lower_window
-                and
-                "gold" in lower_window
+        if price is None:
+            continue
+
+        results.append(
+            {
+                "size": size,
+                "price": price,
+            }
+        )
+
+    return results
+
+
+# ============================================================
+# WALMART
+# ============================================================
+
+def parse_walmart(text):
+    lower = text.lower()
+
+    if (
+        "oura ring 5 gold" not in lower
+        or
+        "sold and shipped by walmart" not in lower
+    ):
+        return []
+
+    results = []
+
+    # Walmart exposes variants in forms such as:
+    # 6, $499.00
+    # 7, $499.00
+    # etc.
+    matches = re.findall(
+        r"\b(6|7|8|9|10|11|12|13)"
+        r"\s*,\s*"
+        r"\$\s*([0-9,]+(?:\.[0-9]{1,2})?)",
+        text,
+        flags=re.I,
+    )
+
+    for size, raw_price in matches:
+
+        price = parse_number(
+            raw_price
+        )
+
+        if price is None:
+            continue
+
+        results.append(
+            {
+                "size": int(size),
+                "price": price,
+            }
+        )
+
+    # Fallback for the selected Gold variant.
+    if not results:
+
+        match = re.search(
+            r"Current price is\s*USD?\$?"
+            r"\s*([0-9,]+(?:\.[0-9]{1,2})?)",
+            text,
+            flags=re.I,
+        )
+
+        if match:
+            price = parse_number(
+                match.group(1)
             )
 
-            if not explicit_ring:
+            if price is not None:
+                results.append(
+                    {
+                        "size": None,
+                        "price": price,
+                    }
+                )
+
+    return results
+
+
+# ============================================================
+# TARGET EXACT GOLD PRODUCT PAGE
+# ============================================================
+
+def parse_target(text, expected_size):
+    expected_title = (
+        f"oura ring 5 gold - size {expected_size}"
+    )
+
+    lower = text.lower()
+
+    if expected_title not in lower:
+        return []
+
+    # Only inspect the beginning of the page around
+    # the confirmed Gold + exact-size title.
+    index = lower.find(expected_title)
+
+    section = text[
+        index:index + 1000
+    ]
+
+    prices = money_values(
+        section
+    )
+
+    filtered = []
+
+    for price in prices:
+
+        # Ignore obvious financing/monthly/gift-card values.
+        if price in (10, 47, 99, 124.75):
+            continue
+
+        filtered.append(price)
+
+    if not filtered:
+        return []
+
+    return [
+        {
+            "size": expected_size,
+            "price": filtered[0],
+        }
+    ]
+
+
+# ============================================================
+# OURA OFFICIAL
+# ============================================================
+
+def parse_oura_official(text):
+    # Require a price appearing AFTER the Gold finish label.
+    #
+    # This prevents Silver $399 appearing earlier on the page
+    # from being reported as Gold.
+    matches = re.findall(
+        r"\bGold\b"
+        r".{0,300}?"
+        r"\$\s*([0-9,]+(?:\.[0-9]{1,2})?)",
+        text,
+        flags=re.I | re.S,
+    )
+
+    results = []
+
+    for raw_price in matches:
+        price = parse_number(
+            raw_price
+        )
+
+        if price is None:
+            continue
+
+        # Exclude common membership/payment figures.
+        if price in (5.99, 69.99):
+            continue
+
+        results.append(
+            {
+                "size": None,
+                "price": price,
+            }
+        )
+
+    return results[:1]
+
+
+# ============================================================
+# COSTCO GOLD
+# ============================================================
+
+def parse_costco(text):
+    lower = text.lower()
+
+    if (
+        "oura ring 5 gold smart ring" not in lower
+        or
+        "color gold" not in lower
+    ):
+        return []
+
+    title_index = lower.find(
+        "oura ring 5 gold smart ring"
+    )
+
+    section = text[
+        title_index:title_index + 1800
+    ]
+
+    prices = money_values(
+        section
+    )
+
+    results = []
+
+    for price in prices:
+
+        if price in (
+            5.99,
+            10,
+            69.99,
+        ):
+            continue
+
+        results.append(
+            {
+                "size": None,
+                "price": price,
+            }
+        )
+
+    return results[:1]
+
+
+# ============================================================
+# SAM'S CLUB GOLD
+# ============================================================
+
+def parse_sams(text):
+    lower = text.lower()
+
+    if (
+        "oura ring 5" not in lower
+        or
+        "actual color:gold" not in lower.replace(" ", "")
+    ):
+        # Try normal spacing too.
+        if (
+            "oura ring 5" not in lower
+            or
+            "actual color: gold" not in lower
+        ):
+            return []
+
+    # Sam's may hide member price depending on session.
+    prices = money_values(
+        text[:2500]
+    )
+
+    results = []
+
+    for price in prices:
+
+        if price in (
+            5.99,
+            10,
+            69.99,
+        ):
+            continue
+
+        results.append(
+            {
+                "size": None,
+                "price": price,
+            }
+        )
+
+    return results[:1]
+
+
+# ============================================================
+# STRICT GENERIC SEARCH
+# Used only when retailer doesn't give us a dependable
+# dedicated product-page format.
+# ============================================================
+
+def parse_strict_search(text):
+    lower = text.lower()
+
+    results = []
+
+    phrase = "oura ring 5"
+
+    start = 0
+
+    while True:
+
+        index = lower.find(
+            phrase,
+            start,
+        )
+
+        if index == -1:
+            break
+
+        # Tight window only.
+        window = text[
+            max(0, index - 80):
+            min(len(text), index + 500)
+        ]
+
+        window_lower = window.lower()
+
+        # Gold has to be inside THIS same product window.
+        if "gold" not in window_lower:
+            start = index + len(phrase)
+            continue
+
+        bad = [
+            "charging case",
+            "charger only",
+            "replacement charger",
+            "protector",
+        ]
+
+        if any(
+            phrase in window_lower
+            for phrase in bad
+        ):
+            start = index + len(phrase)
+            continue
+
+        prices = money_values(
+            window
+        )
+
+        for price in prices:
+
+            if price in (
+                5.99,
+                10,
+                69.99,
+                99,
+            ):
                 continue
 
-        window_prices = extract_prices(
-            window,
-            currency,
+            results.append(
+                {
+                    "size": None,
+                    "price": price,
+                }
+            )
+
+            # Only use the first price after this exact
+            # product context.
+            break
+
+        start = index + len(phrase)
+
+    return results
+
+
+# ============================================================
+# PRICE CLASSIFICATION
+# ============================================================
+
+def classification(aud_total):
+    if aud_total <= PRICE_ERROR_AUD:
+        return (
+            "POSSIBLE PRICE ERROR",
+            "🚨",
         )
 
-        prices.extend(
-            window_prices
+    if aud_total <= GREAT_DEAL_AUD:
+        return (
+            "GREAT DEAL",
+            "🔥",
         )
 
-    return sorted(
-        set(prices)
+    if aud_total <= GOOD_DEAL_AUD:
+        return (
+            "GOOD DEAL",
+            "💍",
+        )
+
+    return (
+        None,
+        "",
     )
 
 
 # ============================================================
-# DEAL CLASSIFICATION
+# EFFECTIVE COST
 # ============================================================
 
-def classify(aud_price):
+def effective_aud(
+    item_price,
+    currency,
+    usd_to_aud,
+):
+    if currency == "AUD":
+        return item_price
 
-    # Lowest threshold checked first.
+    taxed_usd = (
+        item_price
+        * (1 + GA_SALES_TAX)
+    )
 
-    if aud_price <= PRICE_ERROR_AUD:
-        return "POSSIBLE PRICE ERROR"
-
-    if aud_price <= GREAT_DEAL_AUD:
-        return "GREAT DEAL"
-
-    if aud_price <= GOOD_DEAL_AUD:
-        return "GOOD DEAL"
-
-    return None
-
-
-def classification_emoji(aud_price):
-
-    if aud_price <= PRICE_ERROR_AUD:
-        return "🚨"
-
-    if aud_price <= GREAT_DEAL_AUD:
-        return "🔥"
-
-    if aud_price <= GOOD_DEAL_AUD:
-        return "💍"
-
-    return ""
+    return (
+        taxed_usd
+        * usd_to_aud
+    )
 
 
 # ============================================================
-# UNIQUE DEAL ID
+# UNIQUE ALERT ID
 # ============================================================
 
-def make_deal_id(
-    source_name,
-    url,
+def deal_id(
+    retailer,
+    size,
     price,
 ):
-
     raw = (
-        f"{source_name}|"
-        f"{url}|"
+        f"{retailer}|"
+        f"{size}|"
         f"{price:.2f}"
     )
 
@@ -508,35 +805,71 @@ def make_deal_id(
 
 
 # ============================================================
-# IPHONE / NTFY NOTIFICATION
+# NTFY
 # ============================================================
 
 def send_notification(
-    classification,
-    aud_price,
-    message,
-    link,
+    retailer,
+    size,
+    item_price,
+    currency,
+    aud_total,
+    classification_name,
+    emoji,
+    url,
+    usd_to_aud,
 ):
 
-    emoji = classification_emoji(
-        aud_price
-    )
-
-    # HTTP headers need ASCII-safe text.
-    # This avoids the UnicodeEncodeError
-    # from the previous run.
+    # ASCII-only title avoids the crash from before.
     safe_title = (
-        f"{classification} - "
-        f"A${aud_price:.0f}"
+        f"{classification_name} - "
+        f"A${aud_total:.0f}"
     )
 
-    body = (
-        f"{emoji} "
-        f"{classification} - "
-        f"A${aud_price:.2f}"
-        f"\n\n"
-        f"{message}"
-    )
+    if size:
+        size_line = (
+            f"Size: {size}\n"
+        )
+    else:
+        size_line = ""
+
+    if currency == "USD":
+
+        taxed_usd = (
+            item_price
+            * (1 + GA_SALES_TAX)
+        )
+
+        body = (
+            f"{emoji} {classification_name}\n\n"
+            f"Gold Oura Ring 5\n"
+            f"Retailer: {retailer}\n"
+            f"{size_line}"
+            f"Item price: US${item_price:.2f}\n"
+            f"Estimated GA tax: "
+            f"US${item_price * GA_SALES_TAX:.2f}\n"
+            f"Estimated US checkout: "
+            f"US${taxed_usd:.2f}\n"
+            f"USD/AUD: {usd_to_aud:.4f}\n"
+            f"Estimated effective cost: "
+            f"A${aud_total:.2f}\n\n"
+            f"Shipping is not included unless the "
+            f"retailer provides it free.\n\n"
+            f"Tap to verify immediately."
+        )
+
+    else:
+
+        body = (
+            f"{emoji} {classification_name}\n\n"
+            f"Gold Oura Ring 5\n"
+            f"Retailer: {retailer}\n"
+            f"{size_line}"
+            f"Price: A${item_price:.2f}\n\n"
+            f"Estimated effective cost: "
+            f"A${aud_total:.2f}\n\n"
+            f"Tap to verify immediately."
+        )
 
     response = requests.post(
         f"https://ntfy.sh/{NTFY_TOPIC}",
@@ -544,7 +877,7 @@ def send_notification(
         headers={
             "Title": safe_title,
             "Priority": "urgent",
-            "Click": link,
+            "Click": url,
             "Tags": "ring,moneybag",
         },
         timeout=15,
@@ -554,141 +887,82 @@ def send_notification(
 
 
 # ============================================================
-# RETAILER CHECK
+# HANDLE RESULT
 # ============================================================
 
-def check_retailer(
-    source,
+def evaluate_result(
+    retailer,
+    url,
+    currency,
+    size,
+    price,
     usd_to_aud,
     seen,
 ):
 
-    try:
-
-        response = requests.get(
-            source["url"],
-            headers=HEADERS,
-            timeout=25,
-        )
-
-        response.raise_for_status()
-
-    except Exception as exc:
-
-        print(
-            f"SKIPPED "
-            f"{source['name']} "
-            f"(blocked/error): "
-            f"{exc}"
-        )
-
-        return
-
-    text = clean_text(
-        response.text
+    aud_total = effective_aud(
+        price,
+        currency,
+        usd_to_aud,
     )
 
-    if not contains_gold_oura(text):
-
-        print(
-            f"No Gold Oura Ring 5 "
-            f"detected at "
-            f"{source['name']}"
-        )
-
-        return
-
-    prices = find_gold_oura_prices(
-        text,
-        source["currency"],
+    label, emoji = classification(
+        aud_total
     )
 
-    if not prices:
+    size_display = (
+        f"Size {size}"
+        if size
+        else "Size unknown/all"
+    )
+
+    if currency == "USD":
 
         print(
-            f"Gold Oura Ring 5 text found, "
-            f"but no usable ring price found at "
-            f"{source['name']}"
-        )
-
-        return
-
-    cheapest = min(prices)
-
-    if source["currency"] == "USD":
-
-        aud_price = (
-            cheapest
-            * usd_to_aud
+            f"{retailer} | "
+            f"{size_display} | "
+            f"US${price:.2f} | "
+            f"est. A${aud_total:.2f} "
+            f"after GA tax"
         )
 
     else:
 
-        aud_price = cheapest
-
-    classification = classify(
-        aud_price
-    )
-
-    print(
-        f"{source['name']}: "
-        f"{source['currency']} "
-        f"{cheapest:.2f} "
-        f"≈ A${aud_price:.2f}"
-    )
-
-    # Above A$650?
-    # No notification.
-    if not classification:
-        return
-
-    deal_id = make_deal_id(
-        source["name"],
-        source["url"],
-        cheapest,
-    )
-
-    # Already notified at this exact
-    # retailer/price combination.
-    if deal_id in seen:
-
         print(
-            "Already alerted for "
-            "this price."
+            f"{retailer} | "
+            f"{size_display} | "
+            f"A${price:.2f}"
         )
 
+    if not label:
         return
 
-    if source["currency"] == "USD":
+    unique_id = deal_id(
+        retailer,
+        size,
+        price,
+    )
 
-        message = (
-            f"Gold Oura Ring 5 found\n\n"
-            f"Retailer: {source['name']}\n"
-            f"Price: US${cheapest:.2f}\n"
-            f"Approx AUD: A${aud_price:.2f}\n\n"
-            f"US total may be higher after "
-            f"sales tax and/or shipping.\n\n"
-            f"Tap immediately to check."
+    if unique_id in seen:
+        print(
+            "Already alerted for this exact price."
         )
-
-    else:
-
-        message = (
-            f"Gold Oura Ring 5 found\n\n"
-            f"Retailer: {source['name']}\n"
-            f"Price: A${cheapest:.2f}\n\n"
-            f"Tap immediately to check."
-        )
+        return
 
     send_notification(
-        classification,
-        aud_price,
-        message,
-        source["url"],
+        retailer=retailer,
+        size=size,
+        item_price=price,
+        currency=currency,
+        aud_total=aud_total,
+        classification_name=label,
+        emoji=emoji,
+        url=url,
+        usd_to_aud=usd_to_aud,
     )
 
     seen.add(
-        deal_id
+        unique_id
     )
 
     save_seen(
@@ -701,16 +975,162 @@ def check_retailer(
 
 
 # ============================================================
+# CHECK TARGET
+# ============================================================
+
+def check_target(
+    usd_to_aud,
+    seen,
+):
+
+    for product in TARGET_GOLD:
+
+        size = product["size"]
+        url = product["url"]
+
+        print(
+            f"\nChecking Target US "
+            f"Gold size {size}..."
+        )
+
+        try:
+            text = fetch(url)
+
+        except Exception as exc:
+            print(
+                f"SKIPPED Target size {size}: "
+                f"{exc}"
+            )
+            continue
+
+        results = parse_target(
+            text,
+            size,
+        )
+
+        if not results:
+            print(
+                f"No verified Gold price found "
+                f"for Target size {size}."
+            )
+            continue
+
+        for result in results:
+
+            evaluate_result(
+                retailer="Target US",
+                url=url,
+                currency="USD",
+                size=result["size"],
+                price=result["price"],
+                usd_to_aud=usd_to_aud,
+                seen=seen,
+            )
+
+
+# ============================================================
+# CHECK OTHER RETAILERS
+# ============================================================
+
+def check_source(
+    source,
+    usd_to_aud,
+    seen,
+):
+
+    print(
+        f"\nChecking {source['name']}..."
+    )
+
+    try:
+        text = fetch(
+            source["url"]
+        )
+
+    except Exception as exc:
+
+        print(
+            f"SKIPPED {source['name']} "
+            f"(blocked/error): {exc}"
+        )
+
+        return
+
+    parser_name = source["parser"]
+
+    if parser_name == "bestbuy":
+        results = parse_bestbuy(text)
+
+    elif parser_name == "walmart":
+        results = parse_walmart(text)
+
+    elif parser_name == "oura_official":
+        results = parse_oura_official(text)
+
+    elif parser_name == "costco":
+        results = parse_costco(text)
+
+    elif parser_name == "sams":
+        results = parse_sams(text)
+
+    elif parser_name == "strict_search":
+        results = parse_strict_search(text)
+
+    else:
+        results = []
+
+    if not results:
+
+        print(
+            f"No STRICT verified Gold Ring 5 "
+            f"price found at {source['name']}."
+        )
+
+        return
+
+    seen_combinations = set()
+
+    for result in results:
+
+        combination = (
+            result["size"],
+            result["price"],
+        )
+
+        if combination in seen_combinations:
+            continue
+
+        seen_combinations.add(
+            combination
+        )
+
+        evaluate_result(
+            retailer=source["name"],
+            url=source["url"],
+            currency=source["currency"],
+            size=result["size"],
+            price=result["price"],
+            usd_to_aud=usd_to_aud,
+            seen=seen,
+        )
+
+
+# ============================================================
 # OZBARGAIN
 # ============================================================
 
 def check_ozbargain(
-    feed,
+    usd_to_aud,
     seen,
 ):
 
-    try:
+    feed = FEEDS[0]
 
+    print(
+        "\nChecking OzBargain..."
+    )
+
+    try:
         response = requests.get(
             feed["url"],
             headers=HEADERS,
@@ -722,9 +1142,7 @@ def check_ozbargain(
     except Exception as exc:
 
         print(
-            f"Could not read "
-            f"{feed['name']}: "
-            f"{exc}"
+            f"SKIPPED OzBargain: {exc}"
         )
 
         return
@@ -774,77 +1192,63 @@ def check_ozbargain(
         )
 
         combined = (
-            f"{title} "
-            f"{description}"
+            f"{title} {description}"
         )
 
-        if not contains_gold_oura(
-            combined
-        ):
-            continue
+        lower = combined.lower()
 
         if (
-            is_accessory_text(combined)
-            and
-            "gold" not in combined.lower()
+            "oura ring 5" not in lower
+            or
+            "gold" not in lower
         ):
             continue
 
-        prices = extract_prices(
-            combined,
-            "AUD",
+        if any(
+            phrase in lower
+            for phrase in [
+                "charging case",
+                "charger only",
+                "ring protector",
+            ]
+        ):
+            continue
+
+        prices = money_values(
+            combined
         )
 
         if not prices:
             continue
 
-        cheapest = min(
-            prices
-        )
+        # For an actual deal post, use the first plausible
+        # advertised price.
+        price = None
 
-        classification = classify(
-            cheapest
-        )
+        for candidate in prices:
 
-        if not classification:
+            if candidate in (
+                5.99,
+                10,
+                69.99,
+                99,
+            ):
+                continue
+
+            price = candidate
+            break
+
+        if price is None:
             continue
 
-        deal_id = make_deal_id(
-            feed["name"],
-            link,
-            cheapest,
-        )
-
-        if deal_id in seen:
-            continue
-
-        message = (
-            f"Gold Oura Ring 5 deal posted\n\n"
-            f"{title}\n\n"
-            f"Detected price: "
-            f"A${cheapest:.2f}\n"
-            f"Source: OzBargain\n\n"
-            f"Tap immediately to check."
-        )
-
-        send_notification(
-            classification,
-            cheapest,
-            message,
-            link,
-        )
-
-        seen.add(
-            deal_id
-        )
-
-        save_seen(
-            seen
-        )
-
-        print(
-            f"OzBargain alert: "
-            f"{title}"
+        evaluate_result(
+            retailer="OzBargain",
+            url=link,
+            currency="AUD",
+            size=None,
+            price=price,
+            usd_to_aud=usd_to_aud,
+            seen=seen,
         )
 
 
@@ -855,11 +1259,11 @@ def check_ozbargain(
 def main():
 
     print(
-        "Starting Gold Oura Ring 5 search..."
+        "Starting STRICT Gold Oura Ring 5 search..."
     )
 
     print(
-        "Alert thresholds:"
+        "\nEffective AUD thresholds:"
     )
 
     print(
@@ -871,8 +1275,27 @@ def main():
     )
 
     print(
-        "POSSIBLE PRICE ERROR: "
-        "A$550 or less"
+        "POSSIBLE PRICE ERROR: A$550 or less"
+    )
+
+    print(
+        "\nUS comparison assumes:"
+    )
+
+    print(
+        "Delivery to Georgia"
+    )
+
+    print(
+        "Estimated sales tax: 8%"
+    )
+
+    print(
+        "\nAustralian comparison assumes:"
+    )
+
+    print(
+        "Delivery to Victoria"
     )
 
     seen = load_seen()
@@ -882,34 +1305,29 @@ def main():
     )
 
     print(
-        f"USD/AUD rate: "
+        f"\nUSD/AUD rate: "
         f"{usd_to_aud:.4f}"
     )
 
+    # Exact Target Gold pages, sizes 6-13.
+    check_target(
+        usd_to_aud,
+        seen,
+    )
+
+    # Other sources.
     for source in SOURCES:
 
-        print(
-            f"\nChecking "
-            f"{source['name']}..."
-        )
-
-        check_retailer(
+        check_source(
             source,
             usd_to_aud,
             seen,
         )
 
-    for feed in FEEDS:
-
-        print(
-            f"\nChecking "
-            f"{feed['name']}..."
-        )
-
-        check_ozbargain(
-            feed,
-            seen,
-        )
+    check_ozbargain(
+        usd_to_aud,
+        seen,
+    )
 
     print(
         "\nSearch complete."
